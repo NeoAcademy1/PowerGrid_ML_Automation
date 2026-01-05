@@ -1,0 +1,815 @@
+{
+  "name": "ML_Backend",
+  "nodes": [
+    {
+      "parameters": {
+        "model": "deepseek/deepseek-r1:free",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenRouter",
+      "typeVersion": 1,
+      "position": [
+        2048,
+        640
+      ],
+      "id": "1969d6ee-475d-4e0a-bffb-b71f64bb5ee0",
+      "name": "OpenRouter Chat Model",
+      "credentials": {
+        "openRouterApi": {
+          "id": "NKE38knqLxaUGEi3",
+          "name": "OpenRouter account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const output = [];\n\nfor (const item of $input.all()) {\n  const data = item.json;\n  \n  if (data.Hour) {\n  const hourString = data.Hour; \n  const dateParts = hourString.split('/');\n      const timeParts = dateParts[2].split(' ');\n const month = dateParts[0].padStart(2, '0');\n  const day = dateParts[1].padStart(2, '0');\n  const year = timeParts[0];\n  const time = timeParts[1].padStart(5, '0');\n  const standardDatetime = `${year}-${month}-${day} ${time}`.trim();\n     \n    // 2. ساخت شیء خروجی\n    const newItem = {\n      datetime: standardDatetime, // کلید استاندارد شده\n      actual_load: data[\"Actual_Total_Load_MW\"],\n      day_ahead_load: data[\"Day_Ahead_Total_Load_MW\"] \n    };\n\n    output.push({ json: newItem });\n  } else {\n    // حذف آیتم‌هایی که داده‌های ضروری را ندارند\n    item.pairedItem.ignore = true;\n  }\n}\n\nreturn output;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -272,
+        368
+      ],
+      "id": "a94b3464-1719-49a3-8036-c3e02a71c78c",
+      "name": "Total_Load",
+      "alwaysOutputData": true,
+      "notesInFlow": false
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "fieldsToMatchString": "datetime",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        176,
+        272
+      ],
+      "id": "13476749-8c76-48b2-8cbc-2150754b1bcd",
+      "name": "Actual_Data_merged"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 6
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -720,
+        368
+      ],
+      "id": "e4022813-0c58-43df-8279-74acd365ee03",
+      "name": "Daily_Trigger"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "months"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -640,
+        -192
+      ],
+      "id": "5c835dd1-70d0-449f-ae55-c27afa72d1d3",
+      "name": "Monthly_Trigger"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO trained_models (model_data, trained_at, features)\nVALUES (\n    '{{ $json.model }}',\n    '{{ $json.trained_at }}',\n    ARRAY['{{ $json.features.join(\"','\") }}']\n);",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        32,
+        -192
+      ],
+      "id": "5a7a73ae-b3ba-4fc8-99db-1bd57642d2de",
+      "name": "Save_Updated_Model",
+      "credentials": {
+        "postgres": {
+          "id": "X3qskFjtknTIxyAG",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT\n  model_data,\n  features\nFROM\n  trained_models\nORDER BY\n  trained_at DESC\nLIMIT 1;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        416,
+        592
+      ],
+      "id": "e8485402-d2f9-4aa2-8ff6-eaa82e7ba9da",
+      "name": "Load_Latest_Model",
+      "credentials": {
+        "postgres": {
+          "id": "X3qskFjtknTIxyAG",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "http://127.0.0.1:5001/get-generation-data",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -496,
+        176
+      ],
+      "id": "085cdc7a-5eb8-416f-8925-052523a86cac",
+      "name": "Get_Geneartion_Data"
+    },
+    {
+      "parameters": {
+        "url": "http://127.0.0.1:5001/get-load-data",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -496,
+        368
+      ],
+      "id": "e17b7256-fb35-4b6c-beae-a7d36000208e",
+      "name": "Get_Load_Data"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:5002/predict",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "new_data",
+              "value": "={{ $json.new_data }}"
+            },
+            {
+              "name": "model_data",
+              "value": "={{ $json.model_data }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1296,
+        368
+      ],
+      "id": "7ddbe21f-44b7-4327-88cf-7f544762b488",
+      "name": "Call_Prediction_API",
+      "executeOnce": true,
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const output = [];\n// حلقه زدن روی هر آیتم ورودی\nfor (const item of $input.all()) {\n  const data = item.json;\n\n  // بررسی وجود فیلد زمان\n  if (data.Hour) {\n    // 1. استخراج رشته تاریخ از \"8/21/2025 0:00\"\n    const hourString = data.Hour; \n    \n    // 2. تقسیم تاریخ به اجزا\n    const dateParts = hourString.split('/');\n    \n    // 3. استخراج زمان و تقسیم نهایی\n    const timeParts = dateParts[2].split(' ');\n    \n    // 4. ساخت فرمت استاندارد: YYYY-MM-DD HH:MM\n    const month = dateParts[0].padStart(2, '0');\n    const day = dateParts[1].padStart(2, '0');\n    const year = timeParts[0];\n    const time = timeParts[1].padStart(5, '0');\n\n    // 5. ساخت کلید یکتا: \"2025-08-21 00:00\"\n    // این کلید برای گره Merge یکسان و استاندارد است\n    const standardDatetime = `${year}-${month}-${day} ${time}`.trim();\n    \n    // 6. ساختاردهی مجدد داده‌ها\n    const newItem = {\n      // فیلد زمان استاندارد برای Merge\n      datetime: standardDatetime, \n      \n      // مقادیر تولید/ذخیره جدید\n      biomass: data.Biomass ?? 0,\n      'fossil gas': data['Fossil Gas'] ?? 0,\n      'fossil oil': data['Fossil Oil'] ?? 0,\n      'hydro pumped storage': data['Hydro Pumped Storage'] ?? 0,\n      'hydro run-of-river and poundage': data['Hydro Run-of-river and poundage'] ?? 0,\n      'hydro water reservoir': data['Hydro Water Reservoir'] ?? 0,\n      nuclear: data.Nuclear ?? 0,\n      solar: data.Solar ?? 0,\n      waste: data.Waste ?? 0,\n      'wind offshore': data['Wind Offshore'] ?? 0,\n      'wind onshore': data['Wind Onshore'] ?? 0,\n      'energy storage': data['Energy storage'] ?? 0,\n    };\n\n    output.push({ json: newItem });\n  }\n} // <--- آکولاد نهایی حلقه for و فانکشن\n\nreturn output;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -272,
+        176
+      ],
+      "id": "884652f1-624a-497a-8646-ce905df19501",
+      "name": "Generation"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Review the attached dataset:\nthe summary of the past 24 hours and the future 24 hours data for electricity consumption:\n{{JSON.stringify( $json.statistics) }}\nthe timestapms for the past and future data in the dataset:\n{{JSON.stringify ($json.time) }}\nthe amount of data used in the past 24 hours and predicted to be used in the next 24 hours:\n{{ JSON.stringify($json.datasets) }}\nProceed with generating the executive summary for the email.",
+        "options": {
+          "systemMessage": "=You are an expert Data Analyst Assistant specializing in energy consumption reporting. Your task is to review raw JSON data containing electricity load statistics, time series, and load values to generate a concise, professional narrative for a stakeholder email.\n\nStructure & Formatting:\n- Write exactly two distinct paragraphs in professional Business Farsi.\n- Wrap each paragraph in HTML <p> tags (e.g., <p>Paragraph 1...</p><p>Paragraph 2...</p>).\n- Paragraph 1: Executive summary. Compare the aggregate statistics (min, max, average) of past vs. future. Mention specific highest/lowest values with their times.\n- Paragraph 2: Trend analysis. Describe the consumption flow (volatile, stable, rising?). Mention specific timeframes of shifts.\n- Do NOT include any summary list, table, or bullet points at the end. Only the descriptive analysis.\n- Convert ISO timestamps to readable Farsi time (e.g., \"۱۴:۰۰\" or \"۲ بعدازظهر\")\n- Convert \"date\" to jalali date in the whole text and use jalali date in the report.\njust the two paragraphs, whithout any further explanations, only the two paragraphs."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.2,
+      "position": [
+        2032,
+        368
+      ],
+      "id": "2b6b4013-ddc3-4bab-a184-6d58bc2d2401",
+      "name": "Data_Analyst"
+    },
+    {
+      "parameters": {
+        "mode": "raw",
+        "jsonOutput": "={\n  \"statistics\": {\n    \"past_stat\": {\n      \"average\": {{ $json.statistics.past_24h.average }},\n      \"max\": {{ $json.statistics.past_24h.max }},\n      \"min\": {{ $json.statistics.past_24h.min }}\n      \n    },\n    \"future_stat\": {\n      \"average\": {{ $json.statistics.future_24h.average }},\n      \"max\": {{ $json.statistics.future_24h.max }},\n      \"min\": {{ $json.statistics.future_24h.min }}\n      \n    }\n  },\n  \"time\": {\n    \"past_time\": {{ $json.past_24h_data.map(i => i.datetime) }},\n    \"future_time\": {{ $json.future_24h_data.map(i => i.datetime) }}\n  },\n  \"datasets\": [\n    {\n      \"past_load\": {{ $json.past_24h_data.map(i => i.actual_load) }}\n    },\n    {\n      \"future_load\": {{ $json.future_24h_data.map(i => i.predicted_load) }}\n    }\n  ]\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1520,
+        368
+      ],
+      "id": "6f26ae28-6c02-478a-a701-8198b063e207",
+      "name": "Extract_Labels"
+    },
+    {
+      "parameters": {
+        "jsCode": "// دریافت داده‌ها از ورودی\nconst inputData = items[0].json;\n\n// 1. آماده‌سازی محور زمان (Labels)\n// ترکیب زمان گذشته و آینده و کوتاه کردن آن‌ها فقط به ساعت (مثلا 14:00)\nconst pastLabels = inputData.time.past_time.map(t => t.split('T')[1].substring(0, 5));\nconst futureLabels = inputData.time.future_time.map(t => t.split('T')[1].substring(0, 5));\nconst allLabels = [...pastLabels, ...futureLabels];\n\n// 2. آماده‌سازی داده‌های مصرف (Datasets)\nconst pastLoad = inputData.datasets[0].past_load;\nconst futureLoad = inputData.datasets[1].future_load;\n\n// برای اینکه نمودار قرمز (آینده) از سمت راست شروع شود، باید به تعداد داده‌های گذشته، قبل از آن null بگذاریم\n// داده‌های گذشته: [اعداد واقعی ...] + [نال برای آینده ...]\nconst dataActual = [...pastLoad, ...Array(futureLoad.length).fill(null)];\n\n// داده‌های آینده: [نال برای گذشته ...] + [اعداد پیش‌بینی ...]\n// نکته: برای زیبایی اتصال، می‌توان آخرین عدد گذشته را هم به اول این آرایه اضافه کرد، اما اینجا ساده عمل می‌کنیم\nconst dataPredicted = [...Array(pastLoad.length).fill(null), ...futureLoad];\n\n// 3. ساخت تنظیمات نمودار\nconst chartConfig = {\n  type: 'line',\n  data: {\n    labels: allLabels,\n    datasets: [\n      {\n        label: 'Actual Load (Past 24h)',\n        data: dataActual,\n        borderColor: 'blue',\n        backgroundColor: 'blue',\n        fill: false,\n        tension: 0.4, // نرم کردن خطوط\n        pointRadius: 0 // حذف نقاط ریز برای شلوغ نشدن\n      },\n      {\n        label: 'Predicted Load (Next 24h)',\n        data: dataPredicted,\n        borderColor: 'green',\n        backgroundColor: 'green',\n        fill: false,\n        borderDash: [5, 5], // خط‌چین برای پیش‌بینی\n        tension: 0.4,\n        pointRadius: 0\n      }\n    ]\n  },\n  options: {\n    title: {\n      display: true,\n      text: 'Energy Consumption Analysis (48h)'\n    },\n    legend: {\n      position: 'bottom'\n    },\n    scales: {\n      xAxes: [{\n        ticks: {\n          autoSkip: true,\n          maxTicksLimit: 12 // فقط حدود 12 ساعت را در محور پایین نشان دهد که شلوغ نشود\n        }\n      }]\n    }\n  }\n};\n\n// تبدیل به رشته جیسون و انکود کردن برای URL\nconst chartJson = JSON.stringify(chartConfig);\nconst chartUrl = `https://quickchart.io/chart?c=${encodeURIComponent(chartJson)}`;\n\n// ایجاد تگ HTML برای ایمیل\nconst imgTag = `<img src=\"${chartUrl}\" alt=\"Energy Load Chart\" width=\"100%\" style=\"max-width: 800px;\">`;\n\n// خروجی دادن به نود بعدی\nreturn {\n  json: {\n    ...inputData,\n    chart_url: chartUrl,\n    chart_html: imgTag\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1744,
+        368
+      ],
+      "id": "8c28b7cd-e7e5-46c0-9f38-96ee4e0424d1",
+      "name": "Generate_Chart"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO energy_data (\n    datetime,\n    biomass,\n    energy_storage,\n    fossil_gas,\n    fossil_oil,\n    hydro_pumped_storage,\n    hydro_run_of_river_and_poundage,\n    hydro_water_reservoir,\n    nuclear,\n    solar,\n    waste,\n    wind_offshore,\n    wind_onshore\n) VALUES (\n    '{{ $json.datetime }}',\n    {{ $json.biomass || 'null' }},\n    {{ $json[\"energy storage\"] || 'null' }},\n    {{ $json[\"fossil gas\"] || 'null' }},\n    {{ $json[\"fossil oil\"] || 'null' }},\n    {{ $json[\"hydro pumped storage\"] || 'null' }},\n    {{ $json[\"hydro run-of-river and poundage\"] || 'null' }},\n    {{ $json[\"hydro water reservoir\"] || 'null' }},\n    {{ $json.nuclear || 'null' }},\n    {{ $json.solar || 'null' }},\n    {{ $json.waste || 'null' }},\n    {{ $json[\"wind offshore\"] || 'null' }},\n    {{ $json[\"wind onshore\"] || 'null' }}\n)\nON CONFLICT (datetime) DO UPDATE SET\n    biomass                         = EXCLUDED.biomass,\n    energy_storage                  = EXCLUDED.energy_storage,\n    fossil_gas                      = EXCLUDED.fossil_gas,\n    fossil_oil                      = EXCLUDED.fossil_oil,\n    hydro_pumped_storage            = EXCLUDED.hydro_pumped_storage,\n    hydro_run_of_river_and_poundage = EXCLUDED.hydro_run_of_river_and_poundage,\n    hydro_water_reservoir           = EXCLUDED.hydro_water_reservoir,\n    nuclear                         = EXCLUDED.nuclear,\n    solar                           = EXCLUDED.solar,\n    waste                           = EXCLUDED.waste,\n    wind_offshore                   = EXCLUDED.wind_offshore,\n    wind_onshore                    = EXCLUDED.wind_onshore\nRETURNING     \n  TO_CHAR(datetime, 'YYYY-MM-DD\"T\"HH24:MI:SS') as datetime, \n    biomass,\n    energy_storage,\n    fossil_gas,\n    fossil_oil,\n    hydro_pumped_storage,\n    hydro_run_of_river_and_poundage,\n    hydro_water_reservoir,\n    nuclear,\n    solar,\n    waste,\n    wind_offshore,\n    wind_onshore;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -48,
+        176
+      ],
+      "id": "ac376618-c96d-44e8-b30a-ee2ceca6b7b9",
+      "name": "Generation_db",
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "X3qskFjtknTIxyAG",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO hourly_load (\n  datetime,\n  actual_load\n) VALUES (\n  '{{ $json.datetime }}',\n  '{{ $json.actual_load }}'\n)\nRETURNING \n    TO_CHAR(datetime, 'YYYY-MM-DD\"T\"HH24:MI:SS') as datetime, \n   actual_load;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -48,
+        368
+      ],
+      "id": "54fe14b1-9dbd-43c4-b510-3d9e389136d8",
+      "name": "Load_db",
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "X3qskFjtknTIxyAG",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "abec3fc3-7169-4e50-b617-c6fd25dd6571",
+              "name": "datetime",
+              "value": "={{ $json.datetime }}",
+              "type": "string"
+            },
+            {
+              "id": "824c05c6-28c5-4665-957d-9e57558e9baa",
+              "name": "actual_load",
+              "value": "={{ $json.actual_load }}",
+              "type": "number"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        400,
+        272
+      ],
+      "id": "c578b533-46dc-49ab-b31d-024d96a2b943",
+      "name": "Final_Data"
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "destinationFieldName": "new_data",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        624,
+        272
+      ],
+      "id": "a97f5d80-c429-4848-9215-bec0fb380c76",
+      "name": "Aggregate"
+    },
+    {
+      "parameters": {
+        "content": "\n# *Monthly Workflow*",
+        "height": 384,
+        "width": 1120
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -800,
+        -336
+      ],
+      "typeVersion": 1,
+      "id": "88ab35e2-ca91-4098-bbdc-668a21f2965d",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "\n# *Data Extraction & Storing*",
+        "height": 688,
+        "width": 1120,
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -800,
+        80
+      ],
+      "typeVersion": 1,
+      "id": "fb8fecaf-590f-4d7a-8429-a9f6a44763bb",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "# *24h Prediction*",
+        "height": 688,
+        "width": 1136,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        336,
+        80
+      ],
+      "typeVersion": 1,
+      "id": "64b976cc-1d17-49fd-bf65-c5ce5966ab51",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "content": "# *Analytical Report*",
+        "height": 688,
+        "width": 1120,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        1488,
+        80
+      ],
+      "typeVersion": 1,
+      "id": "840a208e-efe8-4343-b71e-496f1254377a",
+      "name": "Sticky Note3"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:5000/train",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $items(\"Past_Data\").map(item => item.json) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -192,
+        -192
+      ],
+      "id": "9d91deab-7d88-4e58-958b-f7eb0bd00472",
+      "name": "Updating_Model",
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT *\nFROM public.hourly_load\nORDER BY datetime DESC\nLIMIT 1000;\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -416,
+        -192
+      ],
+      "id": "3ec3bb63-eedb-4290-9cd0-08d007ae8f68",
+      "name": "Past_Data",
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "X3qskFjtknTIxyAG",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "2f18b1a7-1405-4a3d-b1c0-e0eee21da85e",
+              "name": "new_data",
+              "value": "={{ $json.new_data }}",
+              "type": "array"
+            },
+            {
+              "id": "245a3a77-55dc-417d-9407-48e1e8936ec5",
+              "name": "model_data",
+              "value": "={{ $json.model_data }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1072,
+        368
+      ],
+      "id": "d6593440-0d62-461d-80d6-0519e30dcf85",
+      "name": "Data_for_Prediciton"
+    },
+    {
+      "parameters": {
+        "sendTo": "itsmesut@gmail.com",
+        "subject": "={{ \"گزارش تحلیل مصرف برق - \" + new Date().toLocaleString('fa-IR', { timeZone: 'Asia/Tehran', year: 'numeric', month: '2-digit', day: '2-digit' }) }}",
+        "message": "=<div dir=\"rtl\" style=\"font-family: Tahoma, Arial, sans-serif; line-height: 1.6; color: #333;\">\n\n  <p>مدیران گرامی،</p>\n  <p>گزارش روزانه و تحلیل هوشمند میزان مصرف برق به شرح ذیل تقدیم می‌گردد:</p>\n\n  <!-- بخش تحلیل متنی هوش مصنوعی -->\n  <div style=\"background-color: #f8f9fa; padding: 15px; border-right: 5px solid #007bff; border-radius: 5px; margin-bottom: 25px; text-align: justify;\">\n{{ $json.output .replace(/```html|```/g, \"\")}}\n\n  </div>\n  <!-- جدول آمار خلاصه (ساخت دستی برای زیبایی بیشتر) -->\n  <h3 style=\"color: #0056b3; border-bottom: 2px solid #ddd; padding-bottom: 10px;\">خلاصه آمار عملکردی</h3>\n  \n  <table style=\"width: 100%; border-collapse: collapse; margin-bottom: 30px; font-size: 14px;\">\n    <thead>\n      <tr style=\"background-color: #007bff; color: white;\">\n        <th style=\"padding: 10px; border: 1px solid #ddd; text-align: center;\">شاخص</th>\n        <th style=\"padding: 10px; border: 1px solid #ddd; text-align: center;\">۲۴ ساعت گذشته (واقعی)</th>\n        <th style=\"padding: 10px; border: 1px solid #ddd; text-align: center;\">۲۴ ساعت آینده (پیش‌بینی)</th>\n      </tr>\n    </thead>\n    <tbody>\n      <tr style=\"background-color: #fff;\">\n        <td style=\"padding: 8px; border: 1px solid #ddd; font-weight: bold;\">میانگین بار (MW)</td>\n        <td style=\"padding: 8px; border: 1px solid #ddd; text-align: center;\">{{ Math.round($('Generate_Chart').item.json.statistics.past_stat.average).toLocaleString('fa-IR') }}</td>\n        <td style=\"padding: 8px; border: 1px solid #ddd; text-align: center;\">{{ Math.round($('Generate_Chart').item.json.statistics.future_stat.average).toLocaleString('fa-IR') }}</td>\n      </tr>\n      <tr style=\"background-color: #f2f2f2;\">\n        <td style=\"padding: 8px; border: 1px solid #ddd; font-weight: bold;\">حداکثر بار (MW)</td>\n        <td style=\"padding: 8px; border: 1px solid #ddd; text-align: center; color: #d9534f;\">{{ Math.round($('Generate_Chart').item.json.statistics.past_stat.max).toLocaleString('fa-IR') }}</td>\n        <td style=\"padding: 8px; border: 1px solid #ddd; text-align: center; color: #d9534f;\">{{ Math.round($('Generate_Chart').item.json.statistics.future_stat.max).toLocaleString('fa-IR') }}</td>\n      </tr>\n      <tr style=\"background-color: #fff;\">\n        <td style=\"padding: 8px; border: 1px solid #ddd; font-weight: bold;\">حداقل بار (MW)</td>\n        <td style=\"padding: 8px; border: 1px solid #ddd; text-align: center; color: #5cb85c;\">{{ Math.round($('Generate_Chart').item.json.statistics.past_stat.min).toLocaleString('fa-IR') }}</td>\n        <td style=\"padding: 8px; border: 1px solid #ddd; text-align: center; color: #5cb85c;\">{{ Math.round($('Generate_Chart').item.json.statistics.future_stat.min).toLocaleString('fa-IR') }}</td>\n      </tr>      \n      \n    </tbody>\n  </table>\n\n  <!-- بخش نمودار -->\n  <h3 style=\"color: #0056b3; border-bottom: 2px solid #ddd; padding-bottom: 10px;\">نمودار تحلیل روند (۴۸ ساعته)</h3>\n  <div style=\"text-align: center; margin-top: 15px; border: 1px solid #eee; padding: 10px; border-radius: 8px;\">\n    {{ $('Generate_Chart').item.json.chart_html }}\n  </div>\n\n  <br>\n  <p style=\"font-size: 12px; color: #777; border-top: 1px solid #eee; padding-top: 10px;\">\n    با احترام،<br>\n    <strong>تیم تحلیل داده</strong>\n  </p>\n\n</div>",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        2400,
+        256
+      ],
+      "id": "ea11dfba-4e62-4051-8c3a-fa45b002bd30",
+      "name": "Gmail_Report",
+      "webhookId": "1bfde51b-e0f9-4436-b698-b35d32deb8eb",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "D4bGV8hQtHImARYv",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "94747943",
+        "text": "={{ $json.output.replace(/```html/g, \"\").replace(/```/g, \"\").replace(/<p>/g, \"\").replace(/<\\/p>/g, \"\\n\\n\").trim() }}\n-----------------------------------------------------------------------------------------------------\n\n**خلاصه ۲۴ ساعت گذشته:**\n\nمیانگین:       {{ $('Generate_Chart').item.json.statistics.past_stat.average.toLocaleString('fa-IR', { maximumFractionDigits: 2 }) }} مگاوات\nماکسیمم:      {{ $('Generate_Chart').item.json.statistics.past_stat.max.toLocaleString('fa-IR', { maximumFractionDigits: 2 }) }} مگاوات\nمینیمم:         {{ $('Generate_Chart').item.json.statistics.past_stat.min.toLocaleString('fa-IR', { maximumFractionDigits: 2 }) }} مگاوات\n\n**خلاصه پیش بینی ۲۴ ساعت آینده:**\n\nمیانگین:       {{ $('Generate_Chart').item.json.statistics.future_stat.average.toLocaleString('fa-IR', { maximumFractionDigits: 2 }) }} مگاوات\nماکسیمم:     {{ $('Generate_Chart').item.json.statistics.future_stat.max.toLocaleString('fa-IR', { maximumFractionDigits: 2 }) }} مگاوات\nمینیمم:         {{ $('Generate_Chart').item.json.statistics.future_stat.min.toLocaleString('fa-IR', { maximumFractionDigits: 2 }) }} مگاوات",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2384,
+        480
+      ],
+      "id": "a1d9a50d-dd13-45bd-b438-e618cb1b7937",
+      "name": "Telegram_Report",
+      "webhookId": "a4c35f3e-62a9-44d0-b17b-ea996f23895a",
+      "retryOnFail": false,
+      "credentials": {
+        "telegramApi": {
+          "id": "LkR3JNcEKCinMlqq",
+          "name": "TelegramTest"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        848,
+        368
+      ],
+      "id": "a05aacf5-8173-4be9-9ae1-6e7875392f0c",
+      "name": "Merge_Model&Data"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "OpenRouter Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Data_Analyst",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Total_Load": {
+      "main": [
+        [
+          {
+            "node": "Load_db",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Actual_Data_merged": {
+      "main": [
+        [
+          {
+            "node": "Final_Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Daily_Trigger": {
+      "main": [
+        [
+          {
+            "node": "Load_Latest_Model",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Get_Geneartion_Data",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Get_Load_Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Monthly_Trigger": {
+      "main": [
+        [
+          {
+            "node": "Past_Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save_Updated_Model": {
+      "main": [
+        []
+      ]
+    },
+    "Load_Latest_Model": {
+      "main": [
+        [
+          {
+            "node": "Merge_Model&Data",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Get_Geneartion_Data": {
+      "main": [
+        [
+          {
+            "node": "Generation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get_Load_Data": {
+      "main": [
+        [
+          {
+            "node": "Total_Load",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generation": {
+      "main": [
+        [
+          {
+            "node": "Generation_db",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call_Prediction_API": {
+      "main": [
+        [
+          {
+            "node": "Extract_Labels",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Data_Analyst": {
+      "main": [
+        [
+          {
+            "node": "Gmail_Report",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Telegram_Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract_Labels": {
+      "main": [
+        [
+          {
+            "node": "Generate_Chart",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate_Chart": {
+      "main": [
+        [
+          {
+            "node": "Data_Analyst",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generation_db": {
+      "main": [
+        [
+          {
+            "node": "Actual_Data_merged",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load_db": {
+      "main": [
+        [
+          {
+            "node": "Actual_Data_merged",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Final_Data": {
+      "main": [
+        [
+          {
+            "node": "Aggregate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate": {
+      "main": [
+        [
+          {
+            "node": "Merge_Model&Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Updating_Model": {
+      "main": [
+        [
+          {
+            "node": "Save_Updated_Model",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Past_Data": {
+      "main": [
+        [
+          {
+            "node": "Updating_Model",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Data_for_Prediciton": {
+      "main": [
+        [
+          {
+            "node": "Call_Prediction_API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail_Report": {
+      "main": [
+        []
+      ]
+    },
+    "Merge_Model&Data": {
+      "main": [
+        [
+          {
+            "node": "Data_for_Prediciton",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "346c1936-ca15-4cda-b07b-090a7c73147c",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "ba19c37916750d4926b3ba5b4efd513da0eae80c35bffc7adbdb18aa7f6724a8"
+  },
+  "id": "mG4VqAODq9wRn898",
+  "tags": []
+}
