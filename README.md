@@ -7,7 +7,7 @@
 
 A fully automated end-to-end machine learning pipeline for electrical grid load forecasting and analytical reporting. Built with **n8n**, **PostgreSQL**, and **XGBoost** to deliver daily intelligence reports before the workday begins.
 
-![Architecture Diagram](docs/architecture.png)
+![Architecture Diagram](architecture.png)
 
 ---
 
